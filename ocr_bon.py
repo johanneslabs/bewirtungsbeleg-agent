@@ -7,7 +7,7 @@ from PIL import Image
 # Gemini API Key aus ENV
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
-    raise RuntimeError("Bitte setze GEMINI_API_KEY (in ~/.zshrc).")
+    raise RuntimeError("Missing GEMINI_API_KEY or GOOGLE_API_KEY environment variable")
 
 genai.configure(api_key=GEMINI_API_KEY)
 
