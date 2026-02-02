@@ -14,3 +14,4 @@ output/
 # temp office files
 ~$*.docx
 EOF
+.DS_Store
