@@ -10,8 +10,15 @@ from ocr_bon import ocr_bon
 from extract_agent_gemini import extract_bewirtungsdaten_gemini
 import subprocess
 from pathlib import Path
-from docx2pdf import convert as docx2pdf_convert
 USE_LIBREOFFICE = os.getenv("USE_LIBREOFFICE", "0") == "1"
+
+docx2pdf_convert = None
+if not USE_LIBREOFFICE:
+    try:
+        from docx2pdf import convert as docx2pdf_convert
+    except ImportError:
+        docx2pdf_convert = None
+
 
 
 
@@ -148,18 +155,13 @@ def fill_template(bew_data: dict):
 
 
 def generate_form_pdf(bew_data: dict) -> None:
-    """
-    Füllt das Word-Template und konvertiert es zu PDF.
-    Lokal: docx2pdf
-    Prod (Linux): LibreOffice
-    """
     fill_template(bew_data)
 
     if USE_LIBREOFFICE:
-        # Linux / Railway
         docx_to_pdf_libreoffice(OUTPUT_DOCX, OUTPUT_PDF_FORM)
     else:
-        # macOS lokal
+        if not docx2pdf_convert:
+            raise RuntimeError("docx2pdf not available locally")
         docx2pdf_convert(OUTPUT_DOCX, OUTPUT_PDF_FORM)
 
 
