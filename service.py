@@ -160,10 +160,7 @@ def generate_form_pdf(bew_data: dict) -> None:
     fill_template(bew_data)
 
     # In Docker / Railway immer LibreOffice verwenden
-    docx_to_pdf_libreoffice(
-        docx_path=OUTPUT_DOCX,
-        output_pdf_path=OUTPUT_PDF_FORM,
-    )
+    docx_to_pdf_libreoffice(OUTPUT_DOCX, OUTPUT_PDF_FORM)
 
 
 
