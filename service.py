@@ -11,6 +11,21 @@ from extract_agent_gemini import extract_bewirtungsdaten_gemini
 
 from pathlib import Path
 import subprocess
+import base64
+from pathlib import Path
+
+from full_agent_gemini import build_bew_data_from_upload
+
+def write_signature_tmp(signature_b64: str, tenant_key: str) -> str:
+    # Erwartet reines Base64 (kein data:image/png;base64,)
+    sig_dir = Path("/tmp/signatures")
+    sig_dir.mkdir(parents=True, exist_ok=True)
+
+    sig_path = sig_dir / f"{tenant_key}.png"
+    if not sig_path.exists():
+        sig_path.write_bytes(base64.b64decode(signature_b64))
+    return str(sig_path)
+
 
 def docx_to_pdf_libreoffice(input_docx: str, output_pdf: str) -> None:
     outdir = str(Path(output_pdf).parent)
@@ -103,7 +118,8 @@ def fill_template(bew_data: dict):
         bew_data["personen"] = ", ".join(bew_data["personen"])
 
     doc = Document(TEMPLATE_PATH)
-    signature_path = _get_default_signature_path()
+    signature_path = bew_data.get("signature_path") or _get_default_signature_path()
+
 
     def replace_text(paragraph):
         full_text = "".join(run.text for run in paragraph.runs)
@@ -380,30 +396,36 @@ async def build_bewirtungsbeleg(
 # (OCR + LLM + PDF, End-to-End)
 # --------------------------------------------------
 
+from fastapi import Form, File, UploadFile
+from tenant_store import get_tenant
+# write_signature_tmp importieren/definieren
+# (und in fill_template: signature_path = bew_data.get("signature_path") or _get_default_signature_path())
+
 @app.post("/full-agent")
 async def full_agent(
     email_text: str = Form(...),
     receipt: UploadFile = File(...),
+    tenant_key: str = Form("default"),
 ):
     """
     Nimmt:
-    - email_text: Text aus der E-Mail (Kontext, Anlass, Personen, etc.)
+    - tenant_key: z.B. "enpal" (aus n8n), default="default"
+    - email_text: Text aus der E-Mail
     - receipt: Bon (PDF/JPG/PNG)
-
-    Pipeline:
-    1. Bon speichern
-    2. OCR mit ocr_bon
-    3. Extraktion strukturierter Daten mit extract_bewirtungsbeleg_gemini
-    4. Template füllen & Formular-PDF erzeugen
-    5. Bon + Formular mergen
-    6. Finale PDF zurückgeben
     """
 
-    # 1) Bon speichern
-    os.makedirs("input", exist_ok=True)
-    receipt_path = os.path.join("input", receipt.filename)
+    tenant = get_tenant(tenant_key)
+
+    # 1) Bon speichern (Railway-sicher: /tmp)
+    receipt_bytes = await receipt.read()
+    if not receipt_bytes:
+        raise ValueError("Uploaded receipt is empty")
+
+    os.makedirs("/tmp/input", exist_ok=True)
+    filename = receipt.filename or "receipt"
+    receipt_path = os.path.join("/tmp/input", filename)
     with open(receipt_path, "wb") as f:
-        f.write(await receipt.read())
+        f.write(receipt_bytes)
 
     # 2) OCR
     ocr_text = ocr_bon(receipt_path)
@@ -412,13 +434,14 @@ async def full_agent(
     print("----- END OCR -----")
 
     # 3) Strukturierte Daten (LLM)
-    bew_data = extract_bewirtungsdaten_gemini(ocr_text, email_text)
+    bew_data = extract_bewirtungsdaten_gemini(ocr_text, email_text) or {}
     print("----- EMAIL TEXT START -----")
     print(repr(email_text[:500] if email_text else ""))
     print("----- EMAIL TEXT END -----")
 
     bew_data_before = bew_data.copy()
 
+    # Trinkgeld-Logik (dein bestehender Code)
     bew_data = apply_tip_logic(bew_data, ocr_text=ocr_text, email_text=email_text)
 
     print("----- TIP LOGIC RESULT -----")
@@ -427,10 +450,25 @@ async def full_agent(
     print("trinkgeld:", bew_data.get("trinkgeld"), "betrag_rechnung:", bew_data.get("betrag_rechnung"))
     print("----- END TIP LOGIC RESULT -----")
 
+    # 3.5) Tenant Defaults anwenden (NEU)
+    if not bew_data.get("ort"):
+        bew_data["ort"] = tenant.default_city
+
+    if tenant.signature_png_b64:
+        bew_data["signature_path"] = write_signature_tmp(
+            tenant.signature_png_b64,
+            tenant.tenant_key
+        )
+
+    # Wenn du "Trinkgeld immer 0,00 EUR wenn leer" willst (pragmatisch):
+    if not bew_data.get("trinkgeld"):
+        bew_data["trinkgeld"] = "0,00 EUR"
+        if not bew_data.get("betrag_rechnung"):
+            bew_data["betrag_rechnung"] = bew_data.get("betrag", "")
+
     print("----- EXTRACTED DATA -----")
     print(json.dumps(bew_data, indent=2, ensure_ascii=False))
     print("----- END DATA -----")
-
 
     # 4) Formular erzeugen
     generate_form_pdf(bew_data)
@@ -438,11 +476,11 @@ async def full_agent(
     # 5) Bon + Formular mergen
     merge_pdfs(receipt_path)
 
-
     # 6) PDF mit sauberem Dateinamen zurückgeben
     def safe(s: str) -> str:
         return (
-            s.replace(" ", "-")
+            (s or "")
+            .replace(" ", "-")
             .replace("/", "-")
             .replace("\\", "-")
             .replace("€", "EUR")

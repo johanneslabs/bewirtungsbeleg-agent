@@ -5,3 +5,4 @@ PyPDF2
 pillow
 google-generativeai
 python-multipart
+psycopg[binary]==3.2.1
