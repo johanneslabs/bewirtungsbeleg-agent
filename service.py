@@ -8,46 +8,47 @@ from PyPDF2 import PdfReader, PdfWriter
 
 from ocr_bon import ocr_bon
 from extract_agent_gemini import extract_bewirtungsdaten_gemini
-import subprocess
+
 from pathlib import Path
-USE_LIBREOFFICE = os.getenv("USE_LIBREOFFICE", "0") == "1"
-
-docx2pdf_convert = None
-if not USE_LIBREOFFICE:
-    try:
-        from docx2pdf import convert as docx2pdf_convert
-    except ImportError:
-        docx2pdf_convert = None
-
-
-
+import subprocess
 
 def docx_to_pdf_libreoffice(input_docx: str, output_pdf: str) -> None:
     outdir = str(Path(output_pdf).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
     # LibreOffice erzeugt PDF mit gleichem Dateinamen wie DOCX
-    subprocess.run(
-        [
-            "soffice",
-            "--headless",
-            "--nologo",
-            "--nofirststartwizard",
-            "--convert-to",
-            "pdf",
-            input_docx,
-            "--outdir",
-            outdir,
-        ],
-        check=True,
+    cmd = [
+        "soffice",
+        "--headless",
+        "--nologo",
+        "--nolockcheck",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--convert-to", "pdf",
+        "--outdir", outdir,
+        input_docx,
+    ]
+
+    proc = subprocess.run(
+        cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
 
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"LibreOffice failed (code {proc.returncode}).\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        )
+
     produced = Path(outdir) / (Path(input_docx).stem + ".pdf")
-    if produced != Path(output_pdf):
-        produced.replace(output_pdf)
+    if not produced.exists():
+        raise RuntimeError(f"LibreOffice did not produce PDF at: {produced}")
+
+    # Falls Zielname anders ist, umbenennen
+    target = Path(output_pdf)
+    if produced.resolve() != target.resolve():
+        produced.replace(target)
 # --------------------------------------------------
 # FastAPI App
 # --------------------------------------------------
@@ -152,17 +153,18 @@ def fill_template(bew_data: dict):
 # --------------------------------------------------
 # DOCX -> PDF konvertieren
 # --------------------------------------------------
-
+# DOCX -> PDF konvertieren (immer LibreOffice)
+# --------------------------------------------------
 
 def generate_form_pdf(bew_data: dict) -> None:
     fill_template(bew_data)
 
-    if USE_LIBREOFFICE:
-        docx_to_pdf_libreoffice(OUTPUT_DOCX, OUTPUT_PDF_FORM)
-    else:
-        if not docx2pdf_convert:
-            raise RuntimeError("docx2pdf not available locally")
-        docx2pdf_convert(OUTPUT_DOCX, OUTPUT_PDF_FORM)
+    # In Docker / Railway immer LibreOffice verwenden
+    docx_to_pdf_libreoffice(
+        docx_path=OUTPUT_DOCX,
+        output_pdf_path=OUTPUT_PDF_FORM,
+    )
+
 
 
 import re
