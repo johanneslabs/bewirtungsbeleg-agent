@@ -160,4 +160,4 @@ Built by **Johannes Köhler** — Founders Associate at ephema, Berlin/Paris.
 
 - Email: johannes@ephema.io
 - LinkedIn: [linkedin.com/in/johannes-köhler-9245b21b9](https://www.linkedin.com/in/johannes-köhler-9245b21b9)
-- Demo: [ephema.notion.site/Bewirtungsbeleg-Agent](https://ephema.notion.site/Bewirtungsbeleg-Agent-2e476cd11b5808ca772f160dd2a6cde)
+- Demo: [ephema.notion.site/Bewirtungsbeleg-Agent](https://ephema.notion.site/Bewirtungsbeleg-Agent-2e476cd111b5808ca772f160dd2a6cde)
